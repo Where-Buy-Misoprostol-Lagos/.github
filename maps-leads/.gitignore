@@ -1,0 +1,6 @@
+.env
+config.toml
+*.db
+exports/
+postal_*.csv
+__pycache__/

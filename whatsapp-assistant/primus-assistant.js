@@ -1,0 +1,487 @@
+/*! Primus Pharmacy website assistant — scripted chat widget with WhatsApp handoff. */
+(function () {
+  'use strict';
+  if (window.PrimusAssistant) return;
+
+  /* ------------------------------------------------------------------ *
+   * 1. YOUR DETAILS — edit the text between the quotes, nothing else.
+   *    Leave a value as '' if you don't want the assistant to state it;
+   *    it will then send the customer to WhatsApp for that question.
+   * ------------------------------------------------------------------ */
+  var CONFIG = {
+    name: 'Primus Pharmacy',
+    tagline: 'Community pharmacy in Ajao Estate since 2013, with same-day delivery across Lagos.',
+    whatsapp: '2348166177733', // digits only, country code first, no "+"
+    phoneDisplay: '+234 816 617 7733',
+    address: '14 Awoniyi Elemo Street, off Osolo Way, Ajao Estate, Lagos',
+    hours: '', // e.g. 'Monday to Saturday 8am to 9pm, Sunday 12pm to 6pm'
+    deliveryFee: '', // e.g. 'Delivery within Lagos starts from ₦2,000'
+    payment: '', // e.g. 'We accept bank transfer, POS and cash on pickup'
+    services: [
+      'Prescription dispensing',
+      'Same-day and next-day delivery across Lagos, nationwide shipping',
+      'Family planning and counselling',
+      'Pain management',
+      'Weight management',
+      'Lab results review',
+      'Medicine use reviews',
+      'Travel health',
+      'Referral to specialist clinics'
+    ],
+    quickReplies: [
+      'Do you have this drug in stock?',
+      'Do you deliver to Surulere today?',
+      'Can I send my prescription?',
+      'Can I talk to a pharmacist?',
+      'Where are you in Ajao Estate?'
+    ],
+    teaser: 'Need a medicine or a delivery? Ask me 👋',
+    teaserDelayMs: 4000, // 0 turns the teaser off
+    side: 'right', // 'right' or 'left'
+    offsetX: 20, // px from the side of the screen
+    offsetY: 20 // px from the bottom of the screen
+  };
+
+  var overrides = window.PrimusAssistantConfig || {};
+  for (var key in overrides) {
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) CONFIG[key] = overrides[key];
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 2. THE ASSISTANT'S BRAIN — answers only from CONFIG, never guesses.
+   * ------------------------------------------------------------------ */
+  function wa(text) {
+    return 'https://wa.me/' + CONFIG.whatsapp + '?text=' + encodeURIComponent(text);
+  }
+  function clip(text) {
+    text = String(text).replace(/\s+/g, ' ').trim();
+    return text.length > 200 ? text.slice(0, 200) + '…' : text;
+  }
+  function chat(label, message) {
+    return { label: label, href: wa('Hi ' + CONFIG.name + ', ' + message) };
+  }
+  function withQuestion(intro, raw) {
+    return intro + ' My question: "' + clip(raw) + '"';
+  }
+
+  var STOCK_LEAD = /(?:do you (?:have|sell|stock|carry)|have you got|looking for|i need|i want to buy|can i (?:get|buy|order))\s+(.+?)(?:\s+in stock|\s+available)?[?.!\s]*$/i;
+  var VAGUE_ITEM = /^(?:this|that|it|the|a|an|any|some|my)?\s*(?:drugs?|medicines?|medications?|products?|items?|one|something|it|this|that)?$/i;
+
+  function stockHandoff(item) {
+    item = clip(item);
+    return {
+      text: 'I can\'t see live stock from here, but our pharmacist can confirm "' + item +
+        '" within minutes. Tap below to send the request.\n\nPlease note: prescription-only medicines need a valid prescription.',
+      actions: [chat('Check availability on WhatsApp', 'please confirm if you have this in stock: ' + item)]
+    };
+  }
+
+  // Order matters: the first matching intent answers.
+  var INTENTS = [
+    {
+      id: 'emergency',
+      re: /\b(overdos\w*|can'?t breathe|cannot breathe|difficulty breathing|chest pain|unconscious|faint(?:ed|ing)|seizure|convuls\w*|heavy bleeding|bleeding (?:heavily|a lot|too much)|severe (?:pain|bleeding|reaction)|poison\w*|suicid\w*|emergency)\b/,
+      reply: function () {
+        return {
+          text: 'This sounds urgent. Please go to the nearest hospital now or call 112. Don\'t wait for a chat reply.\n\nYou can also call our pharmacist directly.',
+          actions: [{ label: 'Call ' + CONFIG.phoneDisplay, href: 'tel:+' + CONFIG.whatsapp }]
+        };
+      }
+    },
+    {
+      id: 'pharmacist',
+      re: /\b(pharmacist|human|agent|someone|real person|speak (?:to|with)|talk (?:to|with)|call me|staff|customer (?:care|service))\b/,
+      reply: function () {
+        return {
+          text: 'Of course. Our pharmacists answer on WhatsApp and by phone. Tap below to start the chat.',
+          actions: [
+            chat('Chat with a pharmacist', 'I\'d like to speak with a pharmacist.'),
+            { label: 'Call ' + CONFIG.phoneDisplay, href: 'tel:+' + CONFIG.whatsapp }
+          ]
+        };
+      }
+    },
+    {
+      id: 'advice',
+      re: /\b(dos(?:e|age)|how (?:many|much|often) (?:should|do|can) i (?:take|use)|can i (?:take|use|mix|combine|give)|should i (?:take|use|stop)|is it safe|safe (?:to|for|in)|side effects?|symptoms?|pregnan\w*|breastfeed\w*|allerg\w*|what (?:should|can) i (?:take|use)|(?:something|anything|drugs?|medicines?|medication) for|treat(?:ment)? for|cure|i have (?:a |an )?(?:fever|headache|cough|cold|pain|rash|malaria|infection|ulcer|diarrh\w*)|my (?:child|baby|son|daughter|mum|mother|father|dad|husband|wife) (?:has|is))\b/,
+      reply: function (raw) {
+        return {
+          text: 'I\'m an automated assistant, so I can\'t give medical advice. Our pharmacist will be glad to advise you personally.',
+          actions: [chat('Ask the pharmacist', withQuestion('I need a pharmacist\'s advice.', raw))]
+        };
+      }
+    },
+    {
+      id: 'prescription',
+      re: /\b(prescriptions?|prescribed|doctor'?s? (?:note|paper)|rx)\b/,
+      reply: function () {
+        return {
+          text: 'Yes. Send a clear photo of your prescription on WhatsApp and our pharmacists will process it and arrange pickup or delivery.',
+          actions: [chat('Send prescription on WhatsApp', 'I\'d like to send my prescription.')]
+        };
+      }
+    },
+    {
+      id: 'delivery',
+      re: /\b(deliver\w*|dispatch|ship\w*|send (?:it )?to|rider|courier|waybill|bring it)\b/,
+      reply: function (raw) {
+        return {
+          text: 'Yes, we do same-day and next-day home delivery across Lagos, and we ship nationwide.' +
+            (CONFIG.deliveryFee ? ' ' + CONFIG.deliveryFee + '.' : ' The delivery fee and time depend on your area.') +
+            '\n\nTap below and our team will confirm it for your address.',
+          actions: [chat('Arrange delivery on WhatsApp', withQuestion('I\'d like to arrange a delivery.', raw))]
+        };
+      }
+    },
+    {
+      id: 'stock',
+      re: /\b(in stock|available|availability|do you (?:have|sell|stock|carry)|have you got|looking for|i need|i want to buy|can i (?:get|buy|order)|order)\b/,
+      reply: function (raw) {
+        var found = raw.match(STOCK_LEAD);
+        var item = found ? found[1].trim() : '';
+        if (item && !VAGUE_ITEM.test(item)) return stockHandoff(item);
+        return { text: 'Which medicine or product are you looking for? Type the name (and strength if you know it).', pending: 'stock' };
+      }
+    },
+    {
+      id: 'price',
+      re: /\b(price\w*|how much|cost\w*|naira|cheap\w*|discount|fee)\b/,
+      reply: function (raw) {
+        return {
+          text: 'Prices depend on the brand and pack size, so I\'d rather not guess. Our team will send you the current price on WhatsApp.',
+          actions: [chat('Ask for a price', withQuestion('I\'d like a price.', raw))]
+        };
+      }
+    },
+    {
+      id: 'hours',
+      re: /\b(open\w*|clos\w*|hours?|what time|sunday|saturday|weekend|holiday)\b/,
+      reply: function () {
+        if (CONFIG.hours) return { text: 'We\'re open ' + CONFIG.hours + '.' };
+        return {
+          text: 'Please confirm today\'s opening hours with us on WhatsApp or by phone before you come.',
+          actions: [
+            chat('Ask on WhatsApp', 'what are your opening hours today?'),
+            { label: 'Call ' + CONFIG.phoneDisplay, href: 'tel:+' + CONFIG.whatsapp }
+          ]
+        };
+      }
+    },
+    {
+      id: 'location',
+      re: /\b(where|locat\w*|address|direction\w*|map|landmark|how (?:do|can) i (?:get|find)|ajao|branch\w*)\b/,
+      reply: function () {
+        return {
+          text: 'We\'re at ' + CONFIG.address + '.',
+          actions: [{
+            label: 'Open in Google Maps',
+            href: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(CONFIG.name + ', ' + CONFIG.address)
+          }]
+        };
+      }
+    },
+    {
+      id: 'services',
+      re: /\b(services?|what do you (?:do|offer)|offer|family planning|weight|lab results?|travel|vaccin\w*|referrals?|blood pressure|tests?)\b/,
+      reply: function () {
+        return {
+          text: 'Here\'s what we offer:\n• ' + CONFIG.services.join('\n• '),
+          actions: [chat('Ask about a service', 'I\'d like to ask about one of your services.')]
+        };
+      }
+    },
+    {
+      id: 'payment',
+      re: /\b(pay\w*|transfer|pos|cash|card|bank|account (?:number|details))\b/,
+      reply: function () {
+        if (CONFIG.payment) return { text: CONFIG.payment + '.' };
+        return {
+          text: 'Our team will share payment options and details with your order on WhatsApp. For your safety, only pay to details sent from our official number, ' + CONFIG.phoneDisplay + '.',
+          actions: [chat('Ask about payment', 'how can I pay for my order?')]
+        };
+      }
+    },
+    {
+      id: 'greeting',
+      re: /^ (?:hi|hello|hey|helo|good (?:morning|afternoon|evening|day)|how far)\b/,
+      short: true,
+      reply: function () {
+        return { text: 'Hello! 👋 You can ask me about stock, delivery, prescriptions or where to find us.' };
+      }
+    },
+    {
+      id: 'thanks',
+      re: /\b(thanks?|thank you|ok(?:ay)?|alright|great|nice|bye)\b/,
+      short: true,
+      reply: function () {
+        return { text: 'You\'re welcome! Anything else I can help with?' };
+      }
+    }
+  ];
+
+  function fallback(raw) {
+    return {
+      text: 'I\'m not sure about that one, and I\'d rather not guess. Our team can answer it on WhatsApp.',
+      actions: [chat('Ask on WhatsApp', withQuestion('I have a question.', raw))]
+    };
+  }
+
+  function matchIntent(raw) {
+    var q = ' ' + raw.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+    var words = q.trim().split(' ').length;
+    for (var i = 0; i < INTENTS.length; i++) {
+      var intent = INTENTS[i];
+      if (intent.short && words > 4) continue;
+      if (intent.re.test(q)) return intent;
+    }
+    return null;
+  }
+
+  var pending = null;
+  function answer(raw) {
+    var intent = matchIntent(raw);
+    var wasPending = pending;
+    pending = null;
+    // After "which medicine?", anything that isn't another clear question is the product name.
+    if (wasPending === 'stock' && (!intent || intent.id === 'stock')) {
+      var named = raw.match(STOCK_LEAD);
+      return stockHandoff(named && !VAGUE_ITEM.test(named[1].trim()) ? named[1] : raw);
+    }
+    var result = intent ? intent.reply(raw) : fallback(raw);
+    pending = result.pending || null;
+    return result;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 3. THE CHAT WINDOW — isolated in a shadow root so the site's styles
+   *    and the widget's styles never affect each other.
+   * ------------------------------------------------------------------ */
+  var CSS = [
+    ':host{all:initial}',
+    '*{box-sizing:border-box}',
+    '[hidden]{display:none!important}',
+    '.pa{--green:#128c4b;--deep:#0c5b4c;--ink:#14201b;--muted:#5f6f68;position:fixed;bottom:' + CONFIG.offsetY + 'px;' + CONFIG.side + ':' + CONFIG.offsetX + 'px;z-index:2147483000;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);display:flex;flex-direction:column;align-items:' + (CONFIG.side === 'left' ? 'flex-start' : 'flex-end') + ';gap:10px}',
+    'button{font:inherit;color:inherit;cursor:pointer}',
+    'button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #f3b33d;outline-offset:2px}',
+    '.launch{width:60px;height:60px;border-radius:50%;border:0;background:var(--green);color:#fff;display:grid;place-items:center;box-shadow:0 6px 20px rgba(0,0,0,.28);transition:transform .15s}',
+    '.launch:hover{transform:scale(1.06)}',
+    '.teaser{background:#fff;border-radius:14px;padding:10px 34px 10px 14px;box-shadow:0 6px 24px rgba(0,0,0,.18);max-width:240px;position:relative;cursor:pointer;animation:rise .25s ease-out}',
+    '.teaser button{position:absolute;top:4px;right:4px;width:26px;height:26px;border:0;background:none;color:var(--muted);font-size:18px;line-height:1;border-radius:50%}',
+    '.panel{width:372px;max-width:calc(100vw - 24px);height:min(600px,calc(100vh - ' + (CONFIG.offsetY + 90) + 'px));background:#fff;border-radius:18px;box-shadow:0 18px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden;animation:rise .2s ease-out}',
+    '.head{background:var(--deep);color:#f4fbf8;padding:12px 10px 12px 14px;display:flex;align-items:center;gap:11px}',
+    '.av{width:40px;height:40px;border-radius:50%;background:#f3b33d;color:#2a1d00;display:grid;place-items:center;font-weight:800;flex:0 0 auto}',
+    '.who{flex:1;min-width:0}',
+    '.who b{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.who span{font-size:12.5px;color:#b8dcd2}',
+    '.who span::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#5fe08f;margin-right:5px}',
+    '.x{width:40px;height:40px;border:0;background:none;color:#f4fbf8;font-size:24px;line-height:1;border-radius:50%}',
+    '.wall{flex:1;overflow-y:auto;padding:14px 12px 10px;background:#efe9df;display:flex;flex-direction:column;gap:6px;overscroll-behavior:contain}',
+    '.note{align-self:center;background:#fff3c4;color:#5a4a10;font-size:12px;padding:5px 10px;border-radius:7px;text-align:center;max-width:92%}',
+    '.msg{max-width:84%;padding:7px 10px 5px;border-radius:10px;box-shadow:0 1px .5px rgba(0,0,0,.13);white-space:pre-wrap;overflow-wrap:anywhere;animation:rise .18s ease-out}',
+    '.bot{align-self:flex-start;background:#fff;border-top-left-radius:2px}',
+    '.me{align-self:flex-end;background:#d9f7cf;border-top-right-radius:2px}',
+    '.time{display:block;text-align:right;font-size:11px;color:var(--muted);margin-top:2px}',
+    '.act{display:block;margin-top:7px;padding:9px 10px;border-radius:9px;background:var(--green);color:#fff;text-decoration:none;text-align:center;font-weight:600;font-size:14px;white-space:normal}',
+    '.act+.act{background:#fff;color:var(--green);border:1px solid var(--green)}',
+    '.dots{align-self:flex-start;background:#fff;border-radius:10px;padding:11px 13px;display:flex;gap:4px}',
+    '.dots i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:blink 1s infinite}',
+    '.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}',
+    '.chips{display:flex;gap:6px;overflow-x:auto;padding:8px 12px 2px;background:#efe9df;scrollbar-width:none}',
+    '.chips::-webkit-scrollbar{display:none}',
+    '.chips button{flex:0 0 auto;border:1px solid rgba(0,0,0,.1);background:#fff;border-radius:16px;padding:6px 11px;font-size:13px}',
+    '.bar{display:flex;gap:8px;align-items:center;padding:8px 10px;background:#efe9df}',
+    '.bar input{flex:1;min-width:0;border:0;border-radius:22px;padding:11px 15px;background:#fff;color:var(--ink);font:16px system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;box-shadow:0 1px .5px rgba(0,0,0,.1)}',
+    '.bar button{width:44px;height:44px;border:0;border-radius:50%;background:var(--green);color:#fff;display:grid;place-items:center;flex:0 0 auto}',
+    '.bar button:disabled{opacity:.5}',
+    '.foot{padding:7px 12px 9px;background:#f4f4f0;border-top:1px solid rgba(0,0,0,.08);font-size:11.5px;color:var(--muted);text-align:center}',
+    '.foot a{color:var(--green);font-weight:600}',
+    '@keyframes rise{from{transform:translateY(6px);opacity:.3}to{transform:none;opacity:1}}',
+    '@keyframes blink{0%,60%,100%{opacity:.3}30%{opacity:1}}',
+    '@media (max-width:480px){.pa.open{inset:0;bottom:0;right:0;left:0}.pa.open .panel{width:100%;max-width:none;height:100%;border-radius:0}.pa.open .launch{display:none}}',
+    '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}'
+  ].join('');
+
+  var ICON_CHAT = '<svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3C6.5 3 2 6.9 2 11.7c0 2.5 1.2 4.700 3.200 6.300L4.300 21.500l4.100-1.700c1.100.3 2.300.5 3.600.5 5.500 0 10-3.900 10-8.600S17.500 3 12 3zm-4 9.900a1.300 1.300 0 110-2.600 1.300 1.300 0 010 2.600zm4 0a1.300 1.300 0 110-2.600 1.300 1.300 0 010 2.600zm4 0a1.300 1.300 0 110-2.600 1.300 1.300 0 010 2.600z"/></svg>';
+  var ICON_SEND = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 20.500 21 12 3 3.500l.010 6.600L15 12 3.010 13.900z"/></svg>';
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+  function clock() {
+    return new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  function initials(name) {
+    return name.split(/\s+/).slice(0, 2).map(function (word) { return word.charAt(0); }).join('').toUpperCase();
+  }
+
+  var ui = null;
+  var busy = false;
+
+  function scrollDown() { ui.wall.scrollTop = ui.wall.scrollHeight; }
+
+  function addMessage(who, text, actions) {
+    var bubble = el('div', 'msg ' + who, text);
+    (actions || []).forEach(function (action) {
+      var link = el('a', 'act', action.label);
+      link.href = action.href;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      bubble.appendChild(link);
+    });
+    bubble.appendChild(el('span', 'time', clock()));
+    ui.wall.appendChild(bubble);
+    scrollDown();
+  }
+
+  function send(text) {
+    text = text.trim();
+    if (!text || busy) return;
+    busy = true;
+    ui.sendButton.disabled = true;
+    ui.input.value = '';
+    addMessage('me', text);
+    var dots = el('div', 'dots');
+    dots.innerHTML = '<i></i><i></i><i></i>';
+    ui.wall.appendChild(dots);
+    scrollDown();
+    var result = answer(text);
+    setTimeout(function () {
+      dots.remove();
+      addMessage('bot', result.text, result.actions);
+      busy = false;
+      ui.sendButton.disabled = false;
+    }, 650);
+  }
+
+  function setOpen(open) {
+    ui.root.classList.toggle('open', open);
+    ui.panel.hidden = !open;
+    ui.teaser.hidden = true;
+    ui.launch.setAttribute('aria-expanded', String(open));
+    ui.launch.setAttribute('aria-label', open ? 'Close chat' : 'Chat with ' + CONFIG.name);
+    if (open) {
+      scrollDown();
+      // On phones, focusing the input would pop the keyboard over the conversation.
+      (window.innerWidth > 480 ? ui.input : ui.close).focus();
+    } else {
+      ui.launch.focus();
+    }
+  }
+
+  function build() {
+    var host = el('div');
+    host.id = 'primus-assistant';
+    var shadow = host.attachShadow({ mode: 'open' });
+    shadow.appendChild(el('style', null, CSS));
+
+    var root = el('div', 'pa');
+
+    var panel = el('div', 'panel');
+    panel.hidden = true;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', CONFIG.name + ' chat assistant');
+
+    var head = el('div', 'head');
+    head.appendChild(el('div', 'av', initials(CONFIG.name)));
+    var who = el('div', 'who');
+    who.appendChild(el('b', null, CONFIG.name));
+    who.appendChild(el('span', null, 'Assistant · replies instantly'));
+    head.appendChild(who);
+    var close = el('button', 'x', '×');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close chat');
+    head.appendChild(close);
+
+    var wall = el('div', 'wall');
+    wall.setAttribute('aria-live', 'polite');
+
+    var chips = el('div', 'chips');
+    CONFIG.quickReplies.forEach(function (label) {
+      var chip = el('button', null, label);
+      chip.type = 'button';
+      chips.appendChild(chip);
+    });
+
+    var form = el('form', 'bar');
+    form.autocomplete = 'off';
+    var input = el('input');
+    input.placeholder = 'Type your question…';
+    input.maxLength = 300;
+    input.setAttribute('aria-label', 'Message');
+    var sendButton = el('button');
+    sendButton.setAttribute('aria-label', 'Send');
+    sendButton.innerHTML = ICON_SEND;
+    form.appendChild(input);
+    form.appendChild(sendButton);
+
+    var foot = el('div', 'foot', 'Automated assistant, not medical advice. ');
+    var direct = el('a', null, 'Chat with our team on WhatsApp');
+    direct.href = wa('Hi ' + CONFIG.name + ', I have a question.');
+    direct.target = '_blank';
+    direct.rel = 'noopener';
+    foot.appendChild(direct);
+
+    panel.appendChild(head);
+    panel.appendChild(wall);
+    panel.appendChild(chips);
+    panel.appendChild(form);
+    panel.appendChild(foot);
+
+    var teaser = el('div', 'teaser', CONFIG.teaser);
+    teaser.hidden = true;
+    var teaserClose = el('button', null, '×');
+    teaserClose.type = 'button';
+    teaserClose.setAttribute('aria-label', 'Dismiss');
+    teaser.appendChild(teaserClose);
+
+    var launch = el('button', 'launch');
+    launch.type = 'button';
+    launch.innerHTML = ICON_CHAT;
+
+    root.appendChild(panel);
+    root.appendChild(teaser);
+    root.appendChild(launch);
+    shadow.appendChild(root);
+    document.body.appendChild(host);
+
+    ui = { root: root, panel: panel, wall: wall, input: input, sendButton: sendButton, close: close, teaser: teaser, launch: launch };
+
+    wall.appendChild(el('div', 'note', 'Ask about stock, delivery, prescriptions or directions. A pharmacist handles all health questions.'));
+    addMessage('bot', 'Hello! 👋 Welcome to ' + CONFIG.name + '. ' + CONFIG.tagline + ' How can I help you today?');
+    setOpen(false);
+    launch.blur();
+
+    launch.addEventListener('click', function () { setOpen(panel.hidden); });
+    close.addEventListener('click', function () { setOpen(false); });
+    teaser.addEventListener('click', function (event) {
+      if (event.target === teaserClose) teaser.hidden = true;
+      else setOpen(true);
+    });
+    chips.addEventListener('click', function (event) {
+      if (event.target.tagName === 'BUTTON') send(event.target.textContent);
+    });
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      send(input.value);
+    });
+    root.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && !panel.hidden) setOpen(false);
+    });
+
+    if (CONFIG.teaserDelayMs > 0 && CONFIG.teaser) {
+      setTimeout(function () { if (panel.hidden) teaser.hidden = false; }, CONFIG.teaserDelayMs);
+    }
+  }
+
+  window.PrimusAssistant = {
+    open: function () { if (ui) setOpen(true); },
+    close: function () { if (ui) setOpen(false); },
+    answer: answer
+  };
+
+  if (document.body) build();
+  else document.addEventListener('DOMContentLoaded', build);
+})();

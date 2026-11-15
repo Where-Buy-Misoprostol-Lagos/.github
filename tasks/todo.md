@@ -9,6 +9,9 @@ Hostinger Website Builder, public details from the sample are correct.
 - [x] Browser tests: desktop and phone, 18 question cases, link targets, Escape, no page overflow
 - [x] Install guide (`whatsapp-assistant/README.md`)
 
+- [x] Move to bottom-left (site already has Hostinger's WhatsApp button bottom-right)
+- [x] Owner-editable prepared questions (`CONFIG.prepared`), five seeded from the site's own FAQ and delivery text
+
 ## Review
 
 - All browser checks passed, both from `demo.html` and with the embed pasted into a page `<head>`.

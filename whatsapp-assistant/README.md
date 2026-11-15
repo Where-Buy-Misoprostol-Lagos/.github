@@ -20,8 +20,31 @@ pharmacy's WhatsApp (+234 816 617 7733) with their request already typed.
 Do not use the "Embed code" element on a page for this: that element sits in a
 fixed box, so the chat button could not float in the corner.
 
-If the site already has a floating WhatsApp button in the bottom-right corner,
-either remove it or set `side: 'left'` in the details below so they don't overlap.
+The assistant sits in the bottom-left corner because the site's own WhatsApp
+button is in the bottom-right. If you switch that button off in Hostinger, you
+can move the assistant with `side: 'right'` in the details below.
+
+## Prepared questions
+
+The suggestions customers can tap are in two lists at the top of the code:
+
+- `quickReplies`: questions the assistant works out itself (stock, delivery, prescription…).
+- `prepared`: your own questions, each with the exact answer you wrote.
+
+To add a prepared question, copy one block from `{` to `},` inside `prepared`
+and change the text:
+
+```js
+{
+  question: 'Do you sell baby products?',
+  keywords: ['baby', 'diaper'],            // optional: typed messages with these words get this answer
+  answer: 'Yes, we stock baby care items. Send us your list on WhatsApp.',
+  buttonLabel: 'Send my list',             // optional
+  whatsappMessage: 'Here is my baby products list: '   // or  link: 'https://…'
+},
+```
+
+Keep health advice out of prepared answers; leave that to the pharmacist.
 
 ## What it answers
 

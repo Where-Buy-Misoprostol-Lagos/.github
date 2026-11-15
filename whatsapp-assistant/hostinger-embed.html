@@ -37,9 +37,54 @@
       'Can I talk to a pharmacist?',
       'Where are you in Ajao Estate?'
     ],
+    // Prepared questions: each one shows as a tap-able suggestion and gets exactly
+    // the answer written here. To add one, copy a block from { to }, and change the text.
+    //   question         what the customer sees and taps
+    //   answer           the reply, word for word
+    //   keywords         optional: typed messages containing any of these get this answer too
+    //   buttonLabel      optional: text on the button under the answer
+    //   whatsappMessage  optional: the button opens WhatsApp with this message typed
+    //   link             optional: the button opens this web page instead
+    prepared: [
+      {
+        question: 'Which areas do you deliver to?',
+        keywords: ['which areas', 'what areas', 'areas do you', 'my area', 'my location'],
+        answer: 'We deliver across Lagos, including Ikeja, Festac, Yaba, Surulere, Victoria Island, Lekki, Agege, Somolu, Lagos Island, Apapa, Amuwo-Odofin, Mushin and Eti-Osa.\n\nNot on the list? Ask us and we will confirm for your address.',
+        buttonLabel: 'Arrange delivery on WhatsApp',
+        whatsappMessage: 'I\'d like a delivery. My area is: '
+      },
+      {
+        question: 'Do you ship outside Lagos?',
+        keywords: ['outside lagos', 'nationwide', 'other states', 'international', 'abroad', 'abuja', 'ibadan', 'port harcourt'],
+        answer: 'Yes. We offer secure, tracked shipping across Nigeria and internationally. Tell us your city and we will confirm the cost and delivery time.',
+        buttonLabel: 'Ask about shipping',
+        whatsappMessage: 'I\'d like shipping outside Lagos. My city is: '
+      },
+      {
+        question: 'Can I order online?',
+        keywords: ['order online', 'buy online', 'online store', 'online shop', 'on your website'],
+        answer: 'Yes. You can order from our online store, or simply send your list on WhatsApp and we will deliver to your doorstep.',
+        buttonLabel: 'Open the online store',
+        link: 'https://www.primuspharmacy.com/online-pharmacy-store'
+      },
+      {
+        question: 'Do you offer family planning?',
+        keywords: ['family planning', 'contracepti'],
+        answer: 'Yes, we offer family planning and counselling. Our pharmacist will advise you privately on the option that suits you.',
+        buttonLabel: 'Ask the pharmacist privately',
+        whatsappMessage: 'I\'d like to ask about family planning.'
+      },
+      {
+        question: 'How can I contact you?',
+        keywords: ['contact', 'phone number', 'your number', 'email'],
+        answer: 'WhatsApp or call us on +234 816 617 7733, or visit us at 14 Awoniyi Elemo Street, off Osolo Way, Ajao Estate, Lagos.',
+        buttonLabel: 'Chat on WhatsApp',
+        whatsappMessage: 'I have a question.'
+      }
+    ],
     teaser: 'Need a medicine or a delivery? Ask me 👋',
     teaserDelayMs: 4000, // 0 turns the teaser off
-    side: 'right', // 'right' or 'left'
+    side: 'left', // 'left' or 'right' (left avoids the site's own WhatsApp button)
     offsetX: 20, // px from the side of the screen
     offsetY: 20 // px from the bottom of the screen
   };
@@ -228,13 +273,41 @@
     };
   }
 
+  function normalise(text) {
+    return ' ' + text.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+  }
+
+  function matchPrepared(q) {
+    for (var i = 0; i < CONFIG.prepared.length; i++) {
+      var item = CONFIG.prepared[i];
+      if (normalise(item.question) === q) return item;
+      var keywords = item.keywords || [];
+      for (var k = 0; k < keywords.length; k++) {
+        if (q.indexOf(keywords[k].toLowerCase()) !== -1) return item;
+      }
+    }
+    return null;
+  }
+
+  function preparedReply(item) {
+    var actions = [];
+    if (item.link) actions.push({ label: item.buttonLabel || 'Open page', href: item.link });
+    else if (item.whatsappMessage) actions.push(chat(item.buttonLabel || 'Chat on WhatsApp', item.whatsappMessage));
+    return { text: item.answer, actions: actions };
+  }
+
   function matchIntent(raw) {
-    var q = ' ' + raw.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+    var q = normalise(raw);
     var words = q.trim().split(' ').length;
     for (var i = 0; i < INTENTS.length; i++) {
       var intent = INTENTS[i];
       if (intent.short && words > 4) continue;
       if (intent.re.test(q)) return intent;
+      // The owner's prepared answers beat everything except an emergency.
+      if (i === 0) {
+        var item = matchPrepared(q);
+        if (item) return { id: 'prepared', reply: function () { return preparedReply(item); } };
+      }
     }
     return null;
   }
@@ -401,7 +474,7 @@
     wall.setAttribute('aria-live', 'polite');
 
     var chips = el('div', 'chips');
-    CONFIG.quickReplies.forEach(function (label) {
+    CONFIG.quickReplies.concat(CONFIG.prepared.map(function (item) { return item.question; })).forEach(function (label) {
       var chip = el('button', null, label);
       chip.type = 'button';
       chips.appendChild(chip);

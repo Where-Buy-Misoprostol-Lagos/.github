@@ -124,6 +124,14 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(q["q"], "pharmacy")
         self.assertRegex(q["ll"], r"^@6\.\d+,3\.\d+,13z$")
 
+    def test_region_filter_accepts_name_or_code(self):
+        path = os.path.join(tempfile.mkdtemp(), "z.csv")
+        with open(path, "w") as f:
+            f.write("code,place,region,region_code,lat,lng\n"
+                    "75201,Dallas,Texas,TX,32.78,-96.8\n10001,New York,New York,NY,40.7,-74\n")
+        for wanted in (["Texas"], ["tx"]):
+            self.assertEqual([a["area"] for a in areas.load_postal_areas(path, wanted)], ["75201"])
+
     def test_phone_and_domain(self):
         self.assertEqual(scrape.norm_phone("+1 (214) 555-0002"), scrape.norm_phone("214-555-0002"))
         self.assertEqual(scrape.domain_of("https://www.Acme.com/x?y"), "acme.com")

@@ -30,9 +30,10 @@ def download_postal_codes(country, out_path):
         if len(p) < 11 or p[1] in seen:
             continue
         seen.add(p[1])
-        rows.append({"code": p[1], "place": p[2], "region": p[4] or p[3], "lat": p[9], "lng": p[10]})
+        rows.append({"code": p[1], "place": p[2], "region": p[3], "region_code": p[4],
+                     "lat": p[9], "lng": p[10]})
     with open(out_path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["code", "place", "region", "lat", "lng"])
+        w = csv.DictWriter(f, fieldnames=["code", "place", "region", "region_code", "lat", "lng"])
         w.writeheader()
         w.writerows(rows)
     return len(rows)
@@ -55,9 +56,12 @@ def load_postal_areas(path, regions=None):
             code = _pick(row, "code", "zip", "zipcode", "zip_code", "postal_code", "postcode")
             if not code or code in seen:
                 continue
-            region = _pick(row, "region", "state", "state_id", "admin1", "province")
-            if wanted and (region or "").lower() not in wanted:
-                continue
+            if wanted:
+                names = {(_pick(row, c) or "").lower() for c in
+                         ("region", "region_code", "state", "state_name", "state_id",
+                          "admin1", "province")}
+                if not names & wanted:
+                    continue  # matches "Texas" or "TX", whichever the file has
             seen.add(code)
             lat, lng = _pick(row, "lat", "latitude"), _pick(row, "lng", "lon", "longitude")
             areas.append({"area": code, "suffix": code,
